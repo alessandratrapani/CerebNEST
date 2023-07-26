@@ -188,10 +188,13 @@ public:
     weight_ = w;
   }
 
-  void set_vt_num( long n ){
+  void set_vt_num( double n ){
    vt_num_ = n;
   }
 
+  void set_meta_l( double l ){
+   meta_l_ = l;
+  }
 private:
   // update dopamine trace from last to current dopamine spike and increment index
   void update_dopamine_( const std::vector< nest::spikecounter >& dopa_spikes,const STDPSinExpCommonProperties& cp );
@@ -212,7 +215,9 @@ private:
   // time of last update, which is either time of last presyn. spike or time-driven update
   double t_last_update_;
 
-  long vt_num_;
+  double vt_num_;
+
+  double meta_l_;
 
   double t_lastspike_;
 };
@@ -227,7 +232,8 @@ template < typename targetidentifierT > STDPSinExpConnection< targetidentifierT 
   , weight_( 1.0 )
   , dopa_spikes_idx_( 0 )
   , t_last_update_( 0.0 )
-  , vt_num_ ( 0 )
+  , vt_num_ ( 0.0 )
+  , meta_l_ ( 0.0 )
   , t_lastspike_( 0.0 )
 {
 }
@@ -239,6 +245,7 @@ template < typename targetidentifierT > STDPSinExpConnection< targetidentifierT 
   , dopa_spikes_idx_( rhs.dopa_spikes_idx_ )
   , t_last_update_( rhs.t_last_update_ )
   , vt_num_ ( rhs.vt_num_ )
+  , meta_l_ ( rhs.meta_l_ )
   , t_lastspike_( rhs.t_lastspike_ )
 {
 }
@@ -248,7 +255,8 @@ template < typename targetidentifierT > void STDPSinExpConnection< targetidentif
   // base class properties, different for individual synapse
   ConnectionBase::get_status( d );
   def< double >( d, nest::names::weight, weight_ );
-  def< long >( d, "vt_num", vt_num_ );
+  def< double >( d, "vt_num", vt_num_ );
+  def< double >( d, "meta_l", meta_l_ );
   if ( vt_ != 0 )
   {
     def< long >( d, "modulator", vt_->get_gid() );
@@ -282,7 +290,8 @@ STDPSinExpConnection< targetidentifierT >::set_status( const DictionaryDatum& d,
   // base class properties
   ConnectionBase::set_status( d, cm );
   updateValue< double >( d, nest::names::weight, weight_ );
-  updateValue< long >( d, "vt_num", vt_num_ );
+  updateValue< double >( d, "vt_num", vt_num_ );
+  updateValue< double >( d, "meta_l", meta_l_ );
   long vtgid;
   if ( updateValue< long >( d, nest::names::vt, vtgid ) )
   {
@@ -311,7 +320,7 @@ STDPSinExpConnection< targetidentifierT >::update_dopamine_(
       double sd= SpikeBuffer_[ GR ] - minus_dt;
       if ( sd < 0 && sd >= -200 )
       {
-        LTD_amount += cp.A_minus_ *
+        LTD_amount += cp.A_minus_ * meta_l_ *
           exp( -( sd - 150.0 ) / 1000.0 ) *
           pow( ( sin( 2 * 3.1415 * ( sd - 150.0 ) / 1000.0 ) ), 20 ) / 1.2848;
       }
@@ -350,7 +359,7 @@ STDPSinExpConnection< targetidentifierT >::process_dopa_spikes_(
   // process dopa spikes in (t0, t1]
   // propagate weight from t0 to t1
   if ( ( dopa_spikes.size() > dopa_spikes_idx_ ) &&
-       ( dopa_spikes[ dopa_spikes_idx_ ].spike_time_ <= t1 && dopa_spikes[ dopa_spikes_idx_+1 ].multiplicity_ == vt_num_ ) )
+       ( dopa_spikes[ dopa_spikes_idx_ ].spike_time_ <= t1 && dopa_spikes[ dopa_spikes_idx_+1 ].multiplicity_ == int (vt_num_ ) ) )
   {
     // A IO SPIKE IS DETECTED AT TIME T0, LTD happens with a different amplitude, it depends on the distance between IO SPIKE and PF spikes
     update_dopamine_( dopa_spikes, cp );
@@ -376,7 +385,11 @@ STDPSinExpConnection< targetidentifierT >::send( nest::Event& e,
   // LTP (of a factor A_plus) due to new pre-synaptic spike
   double t_spike_d = t_spike;
   SpikeBuffer_.push_back( t_spike_d );
-  update_weight_( cp.A_plus_, cp );
+  
+  // vt_num control for NO-related enabling
+  if (int(vt_num_) > 0){
+    update_weight_( cp.A_plus_ * meta_l_, cp );
+  }
   while( SpikeBuffer_[ 0 ] < t_spike - 200.0 )
   {
     SpikeBuffer_.erase( SpikeBuffer_.begin() );
